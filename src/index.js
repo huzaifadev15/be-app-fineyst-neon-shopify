@@ -1,10 +1,20 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
 import authRouter from "./routes/auth.js";
 import draftOrdersRouter from "./routes/draftOrders.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.use(cors({
+  origin: [
+    "https://fineyst-signs.myshopify.com",
+    "https://cdn.shopify.com",
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+}));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
