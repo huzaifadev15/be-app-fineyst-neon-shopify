@@ -11,7 +11,10 @@ router.post("/", validateSession, async (req, res) => {
     customer,
     shipping_address,
     billing_address,
+    // accept both "notes" (frontend) and "note" (legacy)
+    notes,
     note,
+    schedule_call,
     tags,
     email,
     use_customer_default_address,
@@ -36,10 +39,22 @@ router.post("/", validateSession, async (req, res) => {
     }),
   }));
 
+  // Build note from all available text fields
+  const noteParts = [];
+  const baseNote = notes || note;
+  if (baseNote) noteParts.push(baseNote);
+  if (schedule_call) noteParts.push(`Schedule Call: ${schedule_call}`);
+  if (customer?.name) noteParts.push(`Customer: ${customer.name}`);
+  if (customer?.phone) noteParts.push(`Phone: ${customer.phone}`);
+  const composedNote = noteParts.join("\n") || undefined;
+
+  // Resolve email: explicit top-level email wins, then customer.email
+  const resolvedEmail = email || customer?.email;
+
   const input = {
     lineItems: lineItemsInput,
-    ...(email && { email }),
-    ...(note && { note }),
+    ...(resolvedEmail && { email: resolvedEmail }),
+    ...(composedNote && { note: composedNote }),
     ...(tags && { tags: Array.isArray(tags) ? tags : tags.split(",").map((t) => t.trim()) }),
     ...(tax_exempt !== undefined && { taxExempt: tax_exempt }),
     ...(use_customer_default_address !== undefined && {
