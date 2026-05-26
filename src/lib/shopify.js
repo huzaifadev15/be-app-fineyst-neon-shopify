@@ -2,11 +2,11 @@ import "@shopify/shopify-api/adapters/node";
 import { shopifyApi, LATEST_API_VERSION, Session } from "@shopify/shopify-api";
 
 const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET,
-  scopes: process.env.SHOPIFY_SCOPES.split(","),
-  hostName: process.env.HOST.replace(/https?:\/\//, ""),
-  apiVersion: LATEST_API_VERSION, // 2025-04
+  apiKey: process.env.SHOPIFY_API_KEY || "",
+  apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
+  scopes: (process.env.SHOPIFY_SCOPES || "write_draft_orders,read_draft_orders").split(","),
+  hostName: (process.env.HOST || "localhost:3000").replace(/https?:\/\//, ""),
+  apiVersion: LATEST_API_VERSION,
   isEmbeddedApp: false,
 });
 
