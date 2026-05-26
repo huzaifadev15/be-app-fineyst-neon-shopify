@@ -1,5 +1,5 @@
 import { Router } from "express";
-import shopify, { saveSession } from "../lib/shopify.js";
+import shopify, { saveSession, loadSession } from "../lib/shopify.js";
 
 const router = Router();
 
@@ -29,7 +29,8 @@ router.get("/callback", async (req, res) => {
     saveSession(session);
 
     console.log(`App installed for shop: ${session.shop}`);
-    res.redirect(`/?shop=${session.shop}&installed=true`);
+    console.log(`ACCESS TOKEN: ${session.accessToken}`);
+    res.redirect(`/?shop=${session.shop}&installed=true&token=${session.accessToken}`);
   } catch (err) {
     console.error("OAuth callback error:", err.message);
     res.status(500).json({ error: "OAuth failed", detail: err.message });
@@ -42,8 +43,9 @@ router.get("/token", (req, res) => {
 
   const sessionId = shopify.session.getOfflineId(shop);
   const session = loadSession(sessionId);
+  const accessToken = session?.accessToken || process.env.SHOPIFY_ACCESS_TOKEN;
 
-  if (!session || !session.accessToken) {
+  if (!accessToken) {
     return res.status(404).json({
       error: "No session found for this shop. Complete OAuth first.",
       authUrl: `/auth?shop=${shop}`,
@@ -51,9 +53,9 @@ router.get("/token", (req, res) => {
   }
 
   return res.json({
-    shop: session.shop,
-    accessToken: session.accessToken,
-    scope: session.scope,
+    shop: session?.shop || shop,
+    accessToken,
+    scope: session?.scope || process.env.SHOPIFY_SCOPES,
   });
 });
 
