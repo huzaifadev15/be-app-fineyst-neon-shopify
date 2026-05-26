@@ -46,14 +46,13 @@ router.post("/", validateSession, async (req, res) => {
   if (schedule_call) noteParts.push(`Schedule Call: ${schedule_call}`);
   if (customer?.name) noteParts.push(`Customer: ${customer.name}`);
   if (customer?.phone) noteParts.push(`Phone: ${customer.phone}`);
-  const composedNote = noteParts.join("\n") || undefined;
-
-  // Resolve email: explicit top-level email wins, then customer.email
+  // Include email in note — app is not approved for the protected email field
   const resolvedEmail = email || customer?.email;
+  if (resolvedEmail) noteParts.push(`Email: ${resolvedEmail}`);
+  const composedNote = noteParts.join("\n") || undefined;
 
   const input = {
     lineItems: lineItemsInput,
-    ...(resolvedEmail && { email: resolvedEmail }),
     ...(composedNote && { note: composedNote }),
     ...(tags && { tags: Array.isArray(tags) ? tags : tags.split(",").map((t) => t.trim()) }),
     ...(tax_exempt !== undefined && { taxExempt: tax_exempt }),
