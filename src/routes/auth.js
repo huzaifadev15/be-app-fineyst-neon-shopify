@@ -38,4 +38,28 @@ router.get("/callback", async (req, res) => {
   }
 });
 
+// GET /auth/token?shop=your-store.myshopify.com — reveal stored access token
+router.get("/token", (req, res) => {
+  const shop = req.query.shop;
+  if (!shop) {
+    return res.status(400).json({ error: "Missing shop parameter" });
+  }
+
+  const sessionId = shopify.session.getOfflineId(shop);
+  const session = loadSession(sessionId);
+
+  if (!session || !session.accessToken) {
+    return res.status(404).json({
+      error: "No session found for this shop. Complete OAuth first.",
+      authUrl: `/auth?shop=${shop}`,
+    });
+  }
+
+  return res.json({
+    shop: session.shop,
+    accessToken: session.accessToken,
+    scope: session.scope,
+  });
+});
+
 export default router;
