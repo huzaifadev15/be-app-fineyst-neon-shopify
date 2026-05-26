@@ -7,20 +7,11 @@ const router = Router();
 // POST /draft-orders — create a draft order
 router.post("/", validateSession, async (req, res) => {
   const {
+    shop,
     line_items,
     customer,
-    shipping_address,
-    billing_address,
-    // accept both "notes" (frontend) and "note" (legacy)
     notes,
-    note,
     schedule_call,
-    tags,
-    email,
-    use_customer_default_address,
-    shipping_line,
-    applied_discount,
-    tax_exempt,
   } = req.body;
 
   if (!line_items || !Array.isArray(line_items) || line_items.length === 0) {
@@ -29,78 +20,26 @@ router.post("/", validateSession, async (req, res) => {
 
   const lineItemsInput = line_items.map((item) => ({
     ...(item.variant_id && { variantId: `gid://shopify/ProductVariant/${item.variant_id}` }),
-    quantity: item.quantity,
-    title: item.title,
-    originalUnitPrice: item.price,
-    requiresShipping: item.requires_shipping,
-    taxable: item.taxable,
+    quantity: parseInt(item.quantity, 10),
     ...(item.properties && {
       customAttributes: item.properties.map((p) => ({ key: p.name, value: String(p.value) })),
     }),
   }));
 
-  // Build note from all available text fields
-  const noteParts = [];
-  const baseNote = notes || note;
-  if (baseNote) noteParts.push(baseNote);
-  if (schedule_call) noteParts.push(`Schedule Call: ${schedule_call}`);
-  if (customer?.name) noteParts.push(`Customer: ${customer.name}`);
-  if (customer?.phone) noteParts.push(`Phone: ${customer.phone}`);
-  // Include email in note — app is not approved for the protected email field
-  const resolvedEmail = email || customer?.email;
-  if (resolvedEmail) noteParts.push(`Email: ${resolvedEmail}`);
-  const composedNote = noteParts.join("\n") || undefined;
+  const note = [
+    notes                  ? notes                              : null,
+    schedule_call          ? `Schedule Call: ${schedule_call}` : null,
+    customer?.name         ? `Customer: ${customer.name}`      : null,
+    customer?.phone        ? `Phone: ${customer.phone}`        : null,
+  ].filter(Boolean).join("\n") || undefined;
 
   const input = {
     lineItems: lineItemsInput,
-    ...(composedNote && { note: composedNote }),
-    ...(tags && { tags: Array.isArray(tags) ? tags : tags.split(",").map((t) => t.trim()) }),
-    ...(tax_exempt !== undefined && { taxExempt: tax_exempt }),
-    ...(use_customer_default_address !== undefined && {
-      useCustomerDefaultAddress: use_customer_default_address,
-    }),
-    ...(customer?.id && { customerId: `gid://shopify/Customer/${customer.id}` }),
-    ...(shipping_address && {
-      shippingAddress: {
-        firstName: shipping_address.first_name,
-        lastName: shipping_address.last_name,
-        address1: shipping_address.address1,
-        address2: shipping_address.address2,
-        city: shipping_address.city,
-        province: shipping_address.province,
-        country: shipping_address.country,
-        zip: shipping_address.zip,
-        phone: shipping_address.phone,
-      },
-    }),
-    ...(billing_address && {
-      billingAddress: {
-        firstName: billing_address.first_name,
-        lastName: billing_address.last_name,
-        address1: billing_address.address1,
-        address2: billing_address.address2,
-        city: billing_address.city,
-        province: billing_address.province,
-        country: billing_address.country,
-        zip: billing_address.zip,
-        phone: billing_address.phone,
-      },
-    }),
-    ...(applied_discount && {
-      appliedDiscount: {
-        value: applied_discount.value,
-        valueType: applied_discount.value_type?.toUpperCase() || "FIXED_AMOUNT",
-        title: applied_discount.title,
-        description: applied_discount.description,
-      },
-    }),
-    ...(shipping_line && {
-      shippingLine: {
-        title: shipping_line.title,
-        price: shipping_line.price,
-        shippingRateHandle: shipping_line.handle,
-      },
-    }),
+    ...(customer?.email && { email: String(customer.email) }),
+    ...(note && { note }),
+    customAttributes: [
+      shop ? { key: "Shop", value: String(shop) } : null,
+    ].filter(Boolean),
   };
 
   const mutation = `
