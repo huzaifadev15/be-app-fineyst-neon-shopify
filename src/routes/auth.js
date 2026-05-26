@@ -5,10 +5,8 @@ const router = Router();
 
 // Step 1: Begin OAuth — redirect merchant to Shopify consent screen
 router.get("/", async (req, res) => {
-  const shop = req.query.shop;
-  if (!shop) {
-    return res.status(400).send("Missing shop parameter");
-  }
+  const shop = req.query.shop || process.env.DEFAULT_SHOP || "fineyst-signs.myshopify.com";
+
 
   await shopify.auth.begin({
     shop: shopify.utils.sanitizeShop(shop, true),
@@ -40,10 +38,7 @@ router.get("/callback", async (req, res) => {
 
 // GET /auth/token?shop=your-store.myshopify.com — reveal stored access token
 router.get("/token", (req, res) => {
-  const shop = req.query.shop;
-  if (!shop) {
-    return res.status(400).json({ error: "Missing shop parameter" });
-  }
+  const shop = req.query.shop || process.env.DEFAULT_SHOP || "fineyst-signs.myshopify.com";
 
   const sessionId = shopify.session.getOfflineId(shop);
   const session = loadSession(sessionId);

@@ -1,10 +1,8 @@
 import shopify, { loadSession } from "../lib/shopify.js";
 
 export const validateSession = async (req, res, next) => {
-  const shop = req.query.shop || req.body?.shop;
-  if (!shop) {
-    return res.status(400).json({ error: "Missing shop parameter" });
-  }
+  const shop = req.query.shop || req.body?.shop || process.env.DEFAULT_SHOP || "fineyst-signs.myshopify.com";
+
 
   const sessionId = shopify.session.getOfflineId(shop);
   const session = loadSession(sessionId);
