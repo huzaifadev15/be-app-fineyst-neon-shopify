@@ -28,7 +28,11 @@ app.get("/", (req, res) => {
   res.json({ message: "Shopify Draft Orders App is running" });
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Start OAuth: http://localhost:${PORT}/auth?shop=your-store.myshopify.com`);
-});
+if (process.env.VERCEL !== "1") {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Start OAuth: http://localhost:${PORT}/auth?shop=your-store.myshopify.com`);
+  });
+}
+
+export default app;
