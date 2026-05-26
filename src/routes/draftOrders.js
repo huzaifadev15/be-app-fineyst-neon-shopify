@@ -1,14 +1,11 @@
 import { Router } from "express";
-import shopify from "../lib/shopify.js";
+import { shopifyGraphql } from "../lib/shopify.js";
 import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
 
-// POST /draft-orders — create a draft order via GraphQL
+// POST /draft-orders — create a draft order
 router.post("/", validateSession, async (req, res) => {
-  const session = req.shopifySession;
-  const client = new shopify.clients.Graphql({ session });
-
   const {
     line_items,
     customer,
@@ -28,15 +25,15 @@ router.post("/", validateSession, async (req, res) => {
   }
 
   const lineItemsInput = line_items.map((item) => ({
-    variantId: item.variant_id ? `gid://shopify/ProductVariant/${item.variant_id}` : undefined,
+    ...(item.variant_id && { variantId: `gid://shopify/ProductVariant/${item.variant_id}` }),
     quantity: item.quantity,
     title: item.title,
-    price: item.price,
+    originalUnitPrice: item.price,
     requiresShipping: item.requires_shipping,
     taxable: item.taxable,
-    customAttributes: item.properties
-      ? item.properties.map((p) => ({ key: p.name, value: String(p.value) }))
-      : undefined,
+    ...(item.properties && {
+      customAttributes: item.properties.map((p) => ({ key: p.name, value: String(p.value) })),
+    }),
   }));
 
   const input = {
@@ -45,7 +42,9 @@ router.post("/", validateSession, async (req, res) => {
     ...(note && { note }),
     ...(tags && { tags: Array.isArray(tags) ? tags : tags.split(",").map((t) => t.trim()) }),
     ...(tax_exempt !== undefined && { taxExempt: tax_exempt }),
-    ...(use_customer_default_address !== undefined && { useCustomerDefaultAddress: use_customer_default_address }),
+    ...(use_customer_default_address !== undefined && {
+      useCustomerDefaultAddress: use_customer_default_address,
+    }),
     ...(customer?.id && { customerId: `gid://shopify/Customer/${customer.id}` }),
     ...(shipping_address && {
       shippingAddress: {
@@ -102,45 +101,31 @@ router.post("/", validateSession, async (req, res) => {
           email
           note2
           tags
+          invoiceUrl
+          createdAt
           lineItems(first: 50) {
             edges {
               node {
                 id
                 title
                 quantity
-                variant {
-                  id
-                  title
-                }
-                customAttributes {
-                  key
-                  value
-                }
+                variant { id title }
+                customAttributes { key value }
               }
             }
           }
           shippingAddress {
-            firstName
-            lastName
-            address1
-            city
-            country
-            zip
+            firstName lastName address1 city country zip
           }
-          invoiceUrl
-          createdAt
         }
-        userErrors {
-          field
-          message
-        }
+        userErrors { field message }
       }
     }
   `;
 
   try {
-    const response = await client.request(mutation, { variables: { input } });
-    const { draftOrderCreate } = response.data;
+    const data = await shopifyGraphql(mutation, { input });
+    const { draftOrderCreate } = data;
 
     if (draftOrderCreate.userErrors.length > 0) {
       return res.status(422).json({
@@ -149,24 +134,15 @@ router.post("/", validateSession, async (req, res) => {
       });
     }
 
-    return res.status(201).json({
-      success: true,
-      draft_order: draftOrderCreate.draftOrder,
-    });
+    return res.status(201).json({ success: true, draft_order: draftOrderCreate.draftOrder });
   } catch (err) {
     console.error("Draft order creation error:", err.message);
-    return res.status(500).json({
-      error: "Failed to create draft order",
-      detail: err.message,
-    });
+    return res.status(500).json({ error: "Failed to create draft order", detail: err.message });
   }
 });
 
-// GET /draft-orders — list all draft orders
+// GET /draft-orders — list draft orders
 router.get("/", validateSession, async (req, res) => {
-  const session = req.shopifySession;
-  const client = new shopify.clients.Graphql({ session });
-
   const { limit = 50 } = req.query;
 
   const query = `
@@ -174,19 +150,9 @@ router.get("/", validateSession, async (req, res) => {
       draftOrders(first: $first) {
         edges {
           node {
-            id
-            name
-            status
-            totalPrice
-            email
-            createdAt
+            id name status totalPrice email createdAt
             lineItems(first: 10) {
-              edges {
-                node {
-                  title
-                  quantity
-                }
-              }
+              edges { node { title quantity } }
             }
           }
         }
@@ -195,48 +161,26 @@ router.get("/", validateSession, async (req, res) => {
   `;
 
   try {
-    const response = await client.request(query, { variables: { first: parseInt(limit) } });
+    const data = await shopifyGraphql(query, { first: parseInt(limit) });
     return res.json({
       success: true,
-      draft_orders: response.data.draftOrders.edges.map((e) => e.node),
+      draft_orders: data.draftOrders.edges.map((e) => e.node),
     });
   } catch (err) {
     console.error("Draft order list error:", err.message);
-    return res.status(500).json({
-      error: "Failed to fetch draft orders",
-      detail: err.message,
-    });
+    return res.status(500).json({ error: "Failed to fetch draft orders", detail: err.message });
   }
 });
 
 // GET /draft-orders/:id — get a single draft order
 router.get("/:id", validateSession, async (req, res) => {
-  const session = req.shopifySession;
-  const client = new shopify.clients.Graphql({ session });
-
   const query = `
     query getDraftOrder($id: ID!) {
       draftOrder(id: $id) {
-        id
-        name
-        status
-        totalPrice
-        email
-        note2
-        tags
-        invoiceUrl
-        createdAt
+        id name status totalPrice email note2 tags invoiceUrl createdAt
         lineItems(first: 50) {
           edges {
-            node {
-              id
-              title
-              quantity
-              customAttributes {
-                key
-                value
-              }
-            }
+            node { id title quantity customAttributes { key value } }
           }
         }
       }
@@ -245,8 +189,8 @@ router.get("/:id", validateSession, async (req, res) => {
 
   try {
     const id = `gid://shopify/DraftOrder/${req.params.id}`;
-    const response = await client.request(query, { variables: { id } });
-    return res.json({ success: true, draft_order: response.data.draftOrder });
+    const data = await shopifyGraphql(query, { id });
+    return res.json({ success: true, draft_order: data.draftOrder });
   } catch (err) {
     console.error("Draft order fetch error:", err.message);
     return res.status(500).json({ error: "Failed to fetch draft order", detail: err.message });
@@ -255,30 +199,19 @@ router.get("/:id", validateSession, async (req, res) => {
 
 // PUT /draft-orders/:id — update a draft order
 router.put("/:id", validateSession, async (req, res) => {
-  const session = req.shopifySession;
-  const client = new shopify.clients.Graphql({ session });
-
   const mutation = `
     mutation draftOrderUpdate($id: ID!, $input: DraftOrderInput!) {
       draftOrderUpdate(id: $id, input: $input) {
-        draftOrder {
-          id
-          name
-          status
-          totalPrice
-        }
-        userErrors {
-          field
-          message
-        }
+        draftOrder { id name status totalPrice }
+        userErrors { field message }
       }
     }
   `;
 
   try {
     const id = `gid://shopify/DraftOrder/${req.params.id}`;
-    const response = await client.request(mutation, { variables: { id, input: req.body } });
-    const { draftOrderUpdate } = response.data;
+    const data = await shopifyGraphql(mutation, { id, input: req.body });
+    const { draftOrderUpdate } = data;
 
     if (draftOrderUpdate.userErrors.length > 0) {
       return res.status(422).json({ error: "Validation failed", detail: draftOrderUpdate.userErrors });
@@ -293,35 +226,25 @@ router.put("/:id", validateSession, async (req, res) => {
 
 // POST /draft-orders/:id/complete — convert draft order to order
 router.post("/:id/complete", validateSession, async (req, res) => {
-  const session = req.shopifySession;
-  const client = new shopify.clients.Graphql({ session });
-
   const mutation = `
     mutation draftOrderComplete($id: ID!, $paymentPending: Boolean) {
       draftOrderComplete(id: $id, paymentPending: $paymentPending) {
         draftOrder {
-          id
-          name
-          status
-          order {
-            id
-            name
-          }
+          id name status
+          order { id name }
         }
-        userErrors {
-          field
-          message
-        }
+        userErrors { field message }
       }
     }
   `;
 
   try {
     const id = `gid://shopify/DraftOrder/${req.params.id}`;
-    const response = await client.request(mutation, {
-      variables: { id, paymentPending: req.body.payment_pending ?? false },
+    const data = await shopifyGraphql(mutation, {
+      id,
+      paymentPending: req.body.payment_pending ?? false,
     });
-    const { draftOrderComplete } = response.data;
+    const { draftOrderComplete } = data;
 
     if (draftOrderComplete.userErrors.length > 0) {
       return res.status(422).json({ error: "Validation failed", detail: draftOrderComplete.userErrors });
@@ -336,25 +259,19 @@ router.post("/:id/complete", validateSession, async (req, res) => {
 
 // DELETE /draft-orders/:id — delete a draft order
 router.delete("/:id", validateSession, async (req, res) => {
-  const session = req.shopifySession;
-  const client = new shopify.clients.Graphql({ session });
-
   const mutation = `
     mutation draftOrderDelete($input: DraftOrderDeleteInput!) {
       draftOrderDelete(input: $input) {
         deletedId
-        userErrors {
-          field
-          message
-        }
+        userErrors { field message }
       }
     }
   `;
 
   try {
     const id = `gid://shopify/DraftOrder/${req.params.id}`;
-    const response = await client.request(mutation, { variables: { input: { id } } });
-    const { draftOrderDelete } = response.data;
+    const data = await shopifyGraphql(mutation, { input: { id } });
+    const { draftOrderDelete } = data;
 
     if (draftOrderDelete.userErrors.length > 0) {
       return res.status(422).json({ error: "Validation failed", detail: draftOrderDelete.userErrors });

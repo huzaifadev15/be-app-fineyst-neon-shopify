@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import authRouter from "./routes/auth.js";
 import draftOrdersRouter from "./routes/draftOrders.js";
+import { accessToken, SHOP_DOMAIN } from "./lib/shopify.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,20 +23,24 @@ app.use(express.urlencoded({ extended: true }));
 // OAuth routes
 app.use("/auth", authRouter);
 
-// Draft orders REST API
+// Draft orders API
 app.use("/draft-orders", draftOrdersRouter);
 
 // Health check
+app.get("/health", (_req, res) => {
+  res.json({ ok: true, shop: SHOP_DOMAIN });
+});
+
+// App entry point — Shopify loads this URL when the merchant opens the app.
+// Redirect to OAuth if no token is present.
 app.get("/", (req, res) => {
-  const shop = req.query.shop;
-  if (shop) {
-    return res.json({
-      message: "Shopify app ready",
-      shop,
-      installed: req.query.installed === "true",
-    });
+  const shop = req.query.shop || SHOP_DOMAIN || "fineyst-signs.myshopify.com";
+
+  if (!accessToken) {
+    return res.redirect(`/auth?shop=${shop}`);
   }
-  res.json({ message: "Shopify Draft Orders App is running" });
+
+  res.json({ message: "Shopify app ready", shop, installed: true });
 });
 
 if (process.env.VERCEL !== "1") {

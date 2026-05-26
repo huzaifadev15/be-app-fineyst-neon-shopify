@@ -1,28 +1,50 @@
-import "@shopify/shopify-api/adapters/node";
-import { shopifyApi, ApiVersion } from "@shopify/shopify-api";
+const SHOP_DOMAIN = (process.env.SHOPIFY_SHOP_DOMAIN || "fineyst-signs.myshopify.com")
+  .replace(/^https?:\/\//i, "")
+  .replace(/\/+$/, "");
 
-const shopify = shopifyApi({
-  apiKey: process.env.SHOPIFY_API_KEY || "",
-  apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
-  scopes: (process.env.SHOPIFY_SCOPES || "write_draft_orders,read_draft_orders").split(","),
-  hostName: (process.env.HOST || "localhost:3000").replace(/https?:\/\//, ""),
-  apiVersion: ApiVersion.April25,
-  isEmbeddedApp: false,
-});
+const API_VERSION = process.env.SHOPIFY_API_VERSION || "2024-04";
 
-// In-memory session storage (replace with DB in production)
-const sessionStorage = new Map();
+// Mutable — updated at runtime when OAuth completes
+export let accessToken = process.env.SHOPIFY_ACCESS_TOKEN || "";
 
-export const saveSession = (session) => {
-  sessionStorage.set(session.id, session);
-};
+export function setAccessToken(token) {
+  accessToken = token;
+}
 
-export const loadSession = (id) => {
-  return sessionStorage.get(id) || null;
-};
+export { SHOP_DOMAIN };
 
-export const deleteSession = (id) => {
-  sessionStorage.delete(id);
-};
+export async function shopifyGraphql(query, variables = {}) {
+  if (!SHOP_DOMAIN || !accessToken) {
+    throw new Error("Missing SHOPIFY_SHOP_DOMAIN or SHOPIFY_ACCESS_TOKEN.");
+  }
 
-export default shopify;
+  const response = await fetch(
+    `https://${SHOP_DOMAIN}/admin/api/${API_VERSION}/graphql.json`,
+    {
+      method: "POST",
+      headers: {
+        "X-Shopify-Access-Token": accessToken,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+    }
+  );
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error(`Shopify GraphQL returned non-JSON response (status ${response.status}).`);
+  }
+
+  if (!response.ok) {
+    const msg = data?.errors?.[0]?.message || data?.error || data?.message || `HTTP ${response.status}`;
+    throw new Error(`Shopify GraphQL failed (${response.status}): ${String(msg).slice(0, 300)}`);
+  }
+
+  if (data.errors?.length) {
+    throw new Error(data.errors[0].message || "Shopify GraphQL returned errors.");
+  }
+
+  return data.data;
+}
