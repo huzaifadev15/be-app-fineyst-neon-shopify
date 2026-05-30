@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "@shopify/shopify-api": "^13.0.0",
+    "@vercel/functions": "^3.6.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",

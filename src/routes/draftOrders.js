@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { waitUntil } from "@vercel/functions";
 import { shopifyGraphql } from "../lib/shopify.js";
 import { validateSession } from "../middleware/validateSession.js";
 
@@ -154,15 +155,8 @@ router.post("/", validateSession, async (req, res) => {
       });
     }
 
-    // Respond immediately — don't let the background fetch block or timeout the serverless function
     res.status(201).json({ success: true, draft_order: draftOrderCreate.draftOrder });
-
-    if (typeof globalThis[Symbol.for("vercel.wait_until")] === "function") {
-      globalThis[Symbol.for("vercel.wait_until")](sendFormNotification(req.body));
-    } else {
-      sendFormNotification(req.body);
-    }
-
+    waitUntil(sendFormNotification(req.body));
     return;
   } catch (err) {
     console.error("Draft order creation error:", err.message);
