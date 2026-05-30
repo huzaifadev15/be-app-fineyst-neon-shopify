@@ -55,12 +55,17 @@ function sendFormNotification(body) {
 
   console.log("[Form Notify] Sending payload:", JSON.stringify(payload, null, 2));
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+
   fetch(FORM_NOTIFY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal: controller.signal,
   })
     .then(async (r) => {
+      clearTimeout(timeout);
       const text = await r.text();
       if (!r.ok) {
         console.error(`[Form Notify] Failed — status ${r.status}, body:`, text);
@@ -68,7 +73,10 @@ function sendFormNotification(body) {
         console.log(`[Form Notify] Success — status ${r.status}, body:`, text);
       }
     })
-    .catch((err) => console.error("[Form Notify] Network error:", err.message));
+    .catch((err) => {
+      clearTimeout(timeout);
+      console.error("[Form Notify] Network error:", err.message);
+    });
 }
 
 // POST /draft-orders — create a draft order
