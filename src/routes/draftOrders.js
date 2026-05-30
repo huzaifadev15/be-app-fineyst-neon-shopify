@@ -40,10 +40,13 @@ function sendFormNotification(body) {
 
   const payload = {
     status:       "NEW",
+    isFine:       true,
     email:        customer?.email  ?? "",
     phoneNumber:  customer?.phone  ?? "",
-    thread:       customer?.name   ?? "",
-    colors:       props.colors     ?? body.colors    ?? "",
+    thread:       "N/A",
+    colors:       "N/A",
+    backing:      "N/A",
+    border:       "N/A",
     queryFrom:    props.queryFrom  ?? body.queryFrom ?? "",
     signType:     props.signType   ?? body.signType  ?? "",
     placement:    props["Placement"] ?? props.placement ?? body.placement ?? "",
