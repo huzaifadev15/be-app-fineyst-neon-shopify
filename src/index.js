@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import authRouter from "./routes/auth.js";
 import draftOrdersRouter from "./routes/draftOrders.js";
+import uploadsRouter from "./routes/uploads.js";
 import { accessToken, SHOP_DOMAIN } from "./lib/shopify.js";
 
 const app = express();
@@ -25,6 +26,9 @@ app.use("/auth", authRouter);
 
 // Draft orders API
 app.use("/draft-orders", draftOrdersRouter);
+
+// File uploads → Shopify CDN
+app.use("/uploads", uploadsRouter);
 
 // Health check
 app.get("/health", (_req, res) => {
