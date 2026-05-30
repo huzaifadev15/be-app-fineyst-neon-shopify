@@ -4,6 +4,53 @@ import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
 
+const FORM_NOTIFY_URL =
+  "https://neonsign.us.com/api/2fa960e3-3d82-4b69-a3af-44eec1747bb4/forms/for-category";
+
+function sendFormNotification(body) {
+  const { customer, line_items = [], notes, schedule_call } = body;
+
+  // Build a property lookup from the first line item's properties array
+  const props = {};
+  (line_items[0]?.properties ?? []).forEach((p) => {
+    props[p.name] = p.value;
+  });
+
+  // uploadedFiles may arrive as a JSON string in properties or as a top-level field
+  let uploadedFiles = body.uploadedFiles ?? [];
+  if (typeof props.uploadedFiles === "string") {
+    try { uploadedFiles = JSON.parse(props.uploadedFiles); } catch {}
+  } else if (Array.isArray(props.uploadedFiles)) {
+    uploadedFiles = props.uploadedFiles;
+  }
+
+  const payload = {
+    status: "NEW",
+    email:        customer?.email                     ?? props.email       ?? "",
+    phoneNumber:  customer?.phone                     ?? props.phoneNumber ?? "",
+    thread:       customer?.name                      ?? props.thread      ?? "",
+    colors:       props.colors       ?? body.colors       ?? "",
+    queryFrom:    props.queryFrom    ?? body.queryFrom    ?? "",
+    signType:     props.signType     ?? body.signType     ?? "",
+    placement:    props.placement    ?? body.placement    ?? "",
+    size:         props.size         ?? body.size         ?? "",
+    quantity:     line_items[0]?.quantity ?? body.quantity ?? 1,
+    notes:        notes              ?? props.notes       ?? "",
+    uploadedFiles,
+    schedule:     schedule_call      ?? props.schedule    ?? "",
+  };
+
+  fetch(FORM_NOTIFY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+    .then((r) => {
+      if (!r.ok) console.error(`Form notify failed: ${r.status}`);
+    })
+    .catch((err) => console.error("Form notify error:", err.message));
+}
+
 // POST /draft-orders — create a draft order
 router.post("/", validateSession, async (req, res) => {
   const {
@@ -86,6 +133,8 @@ router.post("/", validateSession, async (req, res) => {
         detail: draftOrderCreate.userErrors,
       });
     }
+
+    sendFormNotification(req.body);
 
     return res.status(201).json({ success: true, draft_order: draftOrderCreate.draftOrder });
   } catch (err) {
