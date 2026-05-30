@@ -55,33 +55,20 @@ function sendFormNotification(body) {
 
   console.log("[Form Notify] Sending payload:", JSON.stringify(payload, null, 2));
 
-  (async () => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => {
-      console.error("[Form Notify] Timed out after 10s — aborting");
-      controller.abort();
-    }, 10000);
-
-    try {
-      console.log("[Form Notify] Fetching...");
-      const r = await fetch(FORM_NOTIFY_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: controller.signal,
-      });
-      clearTimeout(timeout);
+  return fetch(FORM_NOTIFY_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+    .then(async (r) => {
       const text = await r.text();
       if (!r.ok) {
         console.error(`[Form Notify] Failed — status ${r.status}, body:`, text);
       } else {
         console.log(`[Form Notify] Success — status ${r.status}, body:`, text);
       }
-    } catch (err) {
-      clearTimeout(timeout);
-      console.error("[Form Notify] Error:", err.name, err.message);
-    }
-  })();
+    })
+    .catch((err) => console.error("[Form Notify] Error:", err.message));
 }
 
 // POST /draft-orders — create a draft order
@@ -167,9 +154,16 @@ router.post("/", validateSession, async (req, res) => {
       });
     }
 
-    sendFormNotification(req.body);
+    // Respond immediately — don't let the background fetch block or timeout the serverless function
+    res.status(201).json({ success: true, draft_order: draftOrderCreate.draftOrder });
 
-    return res.status(201).json({ success: true, draft_order: draftOrderCreate.draftOrder });
+    if (typeof globalThis[Symbol.for("vercel.wait_until")] === "function") {
+      globalThis[Symbol.for("vercel.wait_until")](sendFormNotification(req.body));
+    } else {
+      sendFormNotification(req.body);
+    }
+
+    return;
   } catch (err) {
     console.error("Draft order creation error:", err.message);
     return res.status(500).json({ error: "Failed to create draft order", detail: err.message });
