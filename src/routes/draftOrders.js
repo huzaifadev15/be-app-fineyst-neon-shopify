@@ -40,15 +40,22 @@ function sendFormNotification(body) {
     schedule:     schedule_call      ?? props.schedule    ?? "",
   };
 
+  console.log("[Form Notify] Sending payload:", JSON.stringify(payload, null, 2));
+
   fetch(FORM_NOTIFY_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   })
-    .then((r) => {
-      if (!r.ok) console.error(`Form notify failed: ${r.status}`);
+    .then(async (r) => {
+      const text = await r.text();
+      if (!r.ok) {
+        console.error(`[Form Notify] Failed — status ${r.status}, body:`, text);
+      } else {
+        console.log(`[Form Notify] Success — status ${r.status}, body:`, text);
+      }
     })
-    .catch((err) => console.error("Form notify error:", err.message));
+    .catch((err) => console.error("[Form Notify] Network error:", err.message));
 }
 
 // POST /draft-orders — create a draft order
