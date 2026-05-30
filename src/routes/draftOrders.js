@@ -15,29 +15,42 @@ function sendFormNotification(body) {
   (line_items[0]?.properties ?? []).forEach((p) => {
     props[p.name] = p.value;
   });
+  console.log("[Form Notify] Extracted props:", JSON.stringify(props, null, 2));
 
-  // uploadedFiles may arrive as a JSON string in properties or as a top-level field
-  let uploadedFiles = body.uploadedFiles ?? [];
-  if (typeof props.uploadedFiles === "string") {
-    try { uploadedFiles = JSON.parse(props.uploadedFiles); } catch {}
-  } else if (Array.isArray(props.uploadedFiles)) {
-    uploadedFiles = props.uploadedFiles;
+  // Build size string from Width/Height properties
+  const width  = props["Width (in)"]  ?? props["width"]  ?? "";
+  const height = props["Height (in)"] ?? props["height"] ?? "";
+  const size   = width && height ? `${width}x${height}` : (props.size ?? body.size ?? "");
+
+  // Build uploadedFiles from Design File properties
+  const fileUrl      = props["Design File URL"]      ?? props["Design Resource URL"] ?? "";
+  const fileName     = props["Design File Name"]     ?? "";
+  const fileType     = props["Design File Type"]     ?? "";
+  const fileSize     = parseInt(props["Design File Size"] ?? "0", 10);
+  const category     = new Date().getFullYear().toString();
+  let filePath = "";
+  if (fileUrl) {
+    try { filePath = new URL(fileUrl).pathname; } catch { filePath = fileUrl; }
   }
 
+  const uploadedFiles = fileUrl
+    ? [{ originalName: fileName, fileName, filePath, fileUrl, fileSize, fileType, category }]
+    : (body.uploadedFiles ?? []);
+
   const payload = {
-    status: "NEW",
-    email:        customer?.email                     ?? props.email       ?? "",
-    phoneNumber:  customer?.phone                     ?? props.phoneNumber ?? "",
-    thread:       customer?.name                      ?? props.thread      ?? "",
-    colors:       props.colors       ?? body.colors       ?? "",
-    queryFrom:    props.queryFrom    ?? body.queryFrom    ?? "",
-    signType:     props.signType     ?? body.signType     ?? "",
-    placement:    props.placement    ?? body.placement    ?? "",
-    size:         props.size         ?? body.size         ?? "",
+    status:       "NEW",
+    email:        customer?.email  ?? "",
+    phoneNumber:  customer?.phone  ?? "",
+    thread:       customer?.name   ?? "",
+    colors:       props.colors     ?? body.colors    ?? "",
+    queryFrom:    props.queryFrom  ?? body.queryFrom ?? "",
+    signType:     props.signType   ?? body.signType  ?? "",
+    placement:    props["Placement"] ?? props.placement ?? body.placement ?? "",
+    size,
     quantity:     line_items[0]?.quantity ?? body.quantity ?? 1,
-    notes:        notes              ?? props.notes       ?? "",
+    notes:        notes ?? "",
     uploadedFiles,
-    schedule:     schedule_call      ?? props.schedule    ?? "",
+    schedule:     schedule_call ?? "",
   };
 
   console.log("[Form Notify] Sending payload:", JSON.stringify(payload, null, 2));
