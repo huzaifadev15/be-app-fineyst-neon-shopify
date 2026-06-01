@@ -8,7 +8,7 @@ const router = Router();
 const FORM_NOTIFY_URL =
   "https://neonsign.us.com/api/2fa960e3-3d82-4b69-a3af-44eec1747bb4/forms/for-category";
 
-function sendFormNotification(body) {
+function sendFormNotification(body, draftOrder = {}) {
   const { customer, line_items = [], notes, schedule_call } = body;
 
   // Build a property lookup from the first line item's properties array
@@ -60,6 +60,9 @@ function sendFormNotification(body) {
     notes:        notes ?? "",
     uploadedFiles,
     schedule:     schedule_call ?? "",
+    invoiceUrl:   draftOrder.invoiceUrl  ?? "",
+    draftOrderId: draftOrder.id         ?? "",
+    shopType:     "shopify",
   };
 
   console.log("[Form Notify] Sending payload:", JSON.stringify(payload, null, 2));
@@ -164,7 +167,7 @@ router.post("/", validateSession, async (req, res) => {
     }
 
     res.status(201).json({ success: true, draft_order: draftOrderCreate.draftOrder });
-    waitUntil(sendFormNotification(req.body));
+    waitUntil(sendFormNotification(req.body, draftOrderCreate.draftOrder));
     return;
   } catch (err) {
     console.error("Draft order creation error:", err.message);
@@ -285,6 +288,37 @@ router.post("/:id/complete", validateSession, async (req, res) => {
   } catch (err) {
     console.error("Draft order complete error:", err.message);
     return res.status(500).json({ error: "Failed to complete draft order", detail: err.message });
+  }
+});
+
+// POST /draft-orders/:id/invoice — send invoice email for a draft order
+router.post("/:id/invoice", validateSession, async (req, res) => {
+  const mutation = `
+    mutation draftOrderInvoiceSend($id: ID!) {
+      draftOrderInvoiceSend(id: $id) {
+        draftOrder {
+          id
+          name
+          invoiceUrl
+        }
+        userErrors { field message }
+      }
+    }
+  `;
+
+  try {
+    const id = `gid://shopify/DraftOrder/${req.params.id}`;
+    const data = await shopifyGraphql(mutation, { id });
+    const { draftOrderInvoiceSend } = data;
+
+    if (draftOrderInvoiceSend.userErrors.length > 0) {
+      return res.status(422).json({ error: "Failed to send invoice", detail: draftOrderInvoiceSend.userErrors });
+    }
+
+    return res.json({ success: true, draft_order: draftOrderInvoiceSend.draftOrder });
+  } catch (err) {
+    console.error("Draft order invoice error:", err.message);
+    return res.status(500).json({ error: "Failed to send invoice", detail: err.message });
   }
 });
 
