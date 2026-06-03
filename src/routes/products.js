@@ -169,9 +169,6 @@ router.post("/", validateSession, async (req, res) => {
         tracked: true,
         ...(v.cost && { cost: String(v.cost) }),
       },
-      inventoryQuantities: v.quantity != null
-        ? [{ availableQuantity: parseInt(v.quantity, 10), locationId: v.locationId ?? "gid://shopify/Location/98908438835" }]
-        : [],
     }));
 
     try {
