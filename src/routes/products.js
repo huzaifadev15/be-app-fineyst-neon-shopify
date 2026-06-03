@@ -4,25 +4,34 @@ import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
 
-// Cache all publication IDs so we only fetch once per process
-let cachedPublicationIds = null;
+// Cache publication inputs so we only fetch once per process
+let cachedPublicationInputs = null;
 
-async function getAllPublicationIds() {
-  if (cachedPublicationIds) return cachedPublicationIds;
+async function getAllPublicationInputs() {
+  if (cachedPublicationInputs) return cachedPublicationInputs;
 
   const query = `
-    query {
-      publications(first: 20) {
-        edges {
-          node { id name }
+    query GetAllPublications {
+      publications(first: 50) {
+        nodes {
+          id
+          autoPublish
+          supportsFuturePublishing
+          catalog {
+            id
+            title
+          }
         }
       }
     }
   `;
 
   const data = await shopifyGraphql(query);
-  cachedPublicationIds = data.publications.edges.map(({ node }) => node.id);
-  return cachedPublicationIds;
+  // Build one PublicationInput per publication: { publicationId }
+  cachedPublicationInputs = data.publications.nodes.map((node) => ({
+    publicationId: node.id,
+  }));
+  return cachedPublicationInputs;
 }
 
 // POST /products — create a product with optional variants and images
@@ -218,17 +227,26 @@ router.post("/", validateSession, async (req, res) => {
     }
   }
 
-  // Step 4: Publish to all sales channels
+  // Step 4: Publish to all sales channels / publications
   let onlineStoreUrl = createdProduct.onlineStoreUrl ?? null;
   try {
-    const publicationIds = await getAllPublicationIds();
-    if (publicationIds.length > 0) {
+    const publicationInputs = await getAllPublicationInputs();
+    if (publicationInputs.length > 0) {
       const publishMutation = `
-        mutation publishablePublish($id: ID!, $input: PublishablePublishInput!) {
-          publishablePublish(id: $id, input: $input) {
+        mutation PublishProductToAllPublications($productId: ID!, $inputs: [PublicationInput!]!) {
+          publishablePublish(id: $productId, input: $inputs) {
             publishable {
               ... on Product {
+                id
+                title
+                status
                 onlineStoreUrl
+                resourcePublicationsV2(first: 20) {
+                  nodes {
+                    publication { id }
+                    isPublished
+                  }
+                }
               }
             }
             userErrors { field message }
@@ -237,8 +255,8 @@ router.post("/", validateSession, async (req, res) => {
       `;
 
       const pubData = await shopifyGraphql(publishMutation, {
-        id: createdProduct.id,
-        input: { publicationIds },
+        productId: createdProduct.id,
+        inputs: publicationInputs,
       });
 
       const published = pubData.publishablePublish;
