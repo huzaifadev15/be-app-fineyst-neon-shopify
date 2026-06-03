@@ -78,17 +78,19 @@ router.post("/", validateSession, upload.single("file"), async (req, res) => {
     return res.status(500).json({ error: "Failed to upload to S3", detail: err.message });
   }
 
-  // Step 3: register the file in Shopify Files to get the CDN URL
+  // Step 3: register the file in Shopify Files
   const fileCreateMutation = `
     mutation fileCreate($files: [FileCreateInput!]!) {
       fileCreate(files: $files) {
         files {
           ... on MediaImage {
             id
+            fileStatus
             image { url }
           }
           ... on GenericFile {
             id
+            fileStatus
             url
           }
         }
@@ -97,14 +99,10 @@ router.post("/", validateSession, upload.single("file"), async (req, res) => {
     }
   `;
 
+  let fileId;
   try {
     const data = await shopifyGraphql(fileCreateMutation, {
-      files: [
-        {
-          originalSource: stagedTarget.resourceUrl,
-          contentType: "IMAGE",
-        },
-      ],
+      files: [{ originalSource: stagedTarget.resourceUrl, contentType: "IMAGE" }],
     });
 
     const { files, userErrors } = data.fileCreate;
@@ -113,21 +111,69 @@ router.post("/", validateSession, upload.single("file"), async (req, res) => {
       return res.status(422).json({ error: "File registration failed", detail: userErrors });
     }
 
-    const file = files[0];
-    const cdnUrl = file?.image?.url ?? file?.url ?? stagedTarget.resourceUrl;
-
-    return res.status(201).json({
-      success: true,
-      url: cdnUrl,
-      resourceUrl: stagedTarget.resourceUrl,
-      originalName: originalname,
-      mimeType: mimetype,
-      size,
-    });
+    fileId = files[0]?.id;
   } catch (err) {
     console.error("fileCreate error:", err.message);
     return res.status(500).json({ error: "Failed to register file in Shopify", detail: err.message });
   }
+
+  // Step 4: poll until Shopify finishes processing and returns a real CDN URL
+  const pollQuery = `
+    query getFile($id: ID!) {
+      node(id: $id) {
+        ... on MediaImage {
+          id
+          fileStatus
+          image { url }
+        }
+        ... on GenericFile {
+          id
+          fileStatus
+          url
+        }
+      }
+    }
+  `;
+
+  const MAX_ATTEMPTS = 10;
+  const POLL_INTERVAL_MS = 1500;
+
+  let cdnUrl = null;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+    try {
+      const data = await shopifyGraphql(pollQuery, { id: fileId });
+      const node = data?.node;
+      const status = node?.fileStatus;
+      const url = node?.image?.url ?? node?.url;
+
+      if (status === "READY" && url && !url.includes("staged-uploads")) {
+        cdnUrl = url;
+        break;
+      }
+
+      if (status === "FAILED") {
+        return res.status(502).json({ error: "Shopify file processing failed" });
+      }
+    } catch (err) {
+      console.error(`Poll attempt ${attempt + 1} error:`, err.message);
+    }
+  }
+
+  if (!cdnUrl) {
+    return res.status(504).json({
+      error: "Timed out waiting for Shopify to process the image. Try again shortly.",
+      resourceUrl: stagedTarget.resourceUrl,
+    });
+  }
+
+  return res.status(201).json({
+    success: true,
+    url: cdnUrl,
+    originalName: originalname,
+    mimeType: mimetype,
+    size,
+  });
 });
 
 export default router;
