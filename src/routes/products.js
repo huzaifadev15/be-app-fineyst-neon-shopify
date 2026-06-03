@@ -183,6 +183,7 @@ router.post("/", validateSession, async (req, res) => {
             sku
             inventoryQuantity
             selectedOptions { name value }
+            inventoryItem { id }
           }
           userErrors { field message }
         }
@@ -227,7 +228,55 @@ router.post("/", validateSession, async (req, res) => {
     }
   }
 
-  // Step 4: Publish to all sales channels / publications
+  // Step 4: Set default inventory quantity (100) via inventoryAdjustQuantities
+  // inventoryQuantities is not allowed on update — must use this mutation instead
+  const DEFAULT_QUANTITY = 10;
+  const LOCATION_ID = "gid://shopify/Location/98908438835";
+
+  if (updatedVariants.length > 0) {
+    const inventoryMutation = `
+      mutation inventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
+        inventoryAdjustQuantities(input: $input) {
+          inventoryAdjustmentGroup {
+            reason
+            changes {
+              name
+              delta
+              quantityAfterChange
+            }
+          }
+          userErrors { field message }
+        }
+      }
+    `;
+
+    const changes = updatedVariants
+      .map((v) => v.inventoryItem?.id)
+      .filter(Boolean)
+      .map((inventoryItemId) => ({
+        inventoryItemId,
+        locationId: LOCATION_ID,
+        delta: DEFAULT_QUANTITY,
+      }));
+
+    if (changes.length > 0) {
+      try {
+        const invData = await shopifyGraphql(inventoryMutation, {
+          input: { reason: "correction", name: "available", changes },
+        });
+
+        if (invData.inventoryAdjustQuantities.userErrors?.length > 0) {
+          console.warn("Inventory adjust warnings:", invData.inventoryAdjustQuantities.userErrors);
+        }
+      } catch (err) {
+        console.error("Inventory adjust error:", err.message);
+        // Non-fatal — product and variants are correct, just inventory not set
+      }
+    }
+  }
+
+  // Step 5: Publish to all sales channels / publications
+
   let onlineStoreUrl = createdProduct.onlineStoreUrl ?? null;
   try {
     const publicationInputs = await getAllPublicationInputs();
