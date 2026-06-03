@@ -86,7 +86,10 @@ router.post("/", validateSession, async (req, res) => {
           }
           variants(first: 1) {
             edges {
-              node { id }
+              node {
+                id
+                inventoryItem { id }
+              }
             }
           }
           createdAt
@@ -228,12 +231,15 @@ router.post("/", validateSession, async (req, res) => {
     }
   }
 
-  // Step 4: Set default inventory quantity (100) via inventoryAdjustQuantities
-  // inventoryQuantities is not allowed on update — must use this mutation instead
+  // Step 4: Set default inventory (10 units) — always runs, uses inventoryItem.id
+  // from the auto-created default variant returned in productCreate
   const DEFAULT_QUANTITY = 10;
   const LOCATION_ID = "gid://shopify/Location/98908438835";
 
-  if (updatedVariants.length > 0) {
+  const defaultInventoryItemId =
+    createdProduct.variants?.edges?.[0]?.node?.inventoryItem?.id;
+
+  if (defaultInventoryItemId) {
     const inventoryMutation = `
       mutation SetVariantAvailableQuantity($inventoryItemId: ID!, $locationId: ID!, $quantity: Int!) {
         inventorySetQuantities(
@@ -254,37 +260,29 @@ router.post("/", validateSession, async (req, res) => {
           inventoryAdjustmentGroup {
             id
             reason
-            changes {
-              name
-              delta
-              quantityAfterChange
-            }
+            changes { name delta quantityAfterChange }
           }
           userErrors { code field message }
         }
       }
     `;
 
-    const inventoryItemIds = updatedVariants
-      .map((v) => v.inventoryItem?.id)
-      .filter(Boolean);
+    try {
+      const invData = await shopifyGraphql(inventoryMutation, {
+        inventoryItemId: defaultInventoryItemId,
+        locationId: LOCATION_ID,
+        quantity: DEFAULT_QUANTITY,
+      });
 
-    for (const inventoryItemId of inventoryItemIds) {
-      try {
-        const invData = await shopifyGraphql(inventoryMutation, {
-          inventoryItemId,
-          locationId: LOCATION_ID,
-          quantity: DEFAULT_QUANTITY,
-        });
-
-        if (invData.inventorySetQuantities.userErrors?.length > 0) {
-          console.warn("Inventory set warnings:", invData.inventorySetQuantities.userErrors);
-        }
-      } catch (err) {
-        console.error("Inventory set error:", err.message);
-        // Non-fatal — product and variants are correct, just inventory not set
+      if (invData.inventorySetQuantities.userErrors?.length > 0) {
+        console.warn("Inventory set warnings:", invData.inventorySetQuantities.userErrors);
       }
+    } catch (err) {
+      console.error("Inventory set error:", err.message);
+      // Non-fatal — product and variants are correct, just inventory not set
     }
+  } else {
+    console.warn("No inventoryItem.id found on default variant — skipping inventory set");
   }
 
   // Step 5: Publish to all sales channels / publications
