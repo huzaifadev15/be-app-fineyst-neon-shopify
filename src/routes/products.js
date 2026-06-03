@@ -246,13 +246,12 @@ router.post("/", validateSession, async (req, res) => {
           input: {
             name: "available"
             reason: "correction"
-            referenceDocumentUri: "gid://shopify/Product/InitialStock"
+            referenceDocumentUri: "gid://your-app/InitialStock/1"
             quantities: [
               {
                 inventoryItemId: $inventoryItemId
                 locationId: $locationId
                 quantity: $quantity
-                changeFromQuantity: null
               }
             ]
           }
