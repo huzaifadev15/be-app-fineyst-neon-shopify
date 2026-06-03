@@ -4,6 +4,24 @@ import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
 
+// Cache location ID so we only fetch once per process
+let cachedLocationId = null;
+
+async function getLocationId() {
+  if (cachedLocationId) return cachedLocationId;
+
+  const data = await shopifyGraphql(`
+    query {
+      locations(first: 1) {
+        nodes { id name }
+      }
+    }
+  `);
+
+  cachedLocationId = data.locations.nodes[0]?.id ?? null;
+  return cachedLocationId;
+}
+
 // Cache publication inputs so we only fetch once per process
 let cachedPublicationInputs = null;
 
@@ -234,7 +252,7 @@ router.post("/", validateSession, async (req, res) => {
   // Step 4: Set default inventory (10 units) — always runs, uses inventoryItem.id
   // from the auto-created default variant returned in productCreate
   const DEFAULT_QUANTITY = 10;
-  const LOCATION_ID = "gid://shopify/Location/98908438835";
+  const LOCATION_ID = await getLocationId();
 
   const defaultInventoryItemId =
     createdProduct.variants?.edges?.[0]?.node?.inventoryItem?.id;
@@ -247,6 +265,7 @@ router.post("/", validateSession, async (req, res) => {
             name: "available"
             reason: "correction"
             referenceDocumentUri: "gid://your-app/InitialStock/1"
+            ignoreCompareQuantity: true
             quantities: [
               {
                 inventoryItemId: $inventoryItemId
