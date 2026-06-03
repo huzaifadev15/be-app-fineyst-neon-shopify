@@ -235,9 +235,24 @@ router.post("/", validateSession, async (req, res) => {
 
   if (updatedVariants.length > 0) {
     const inventoryMutation = `
-      mutation inventoryAdjustQuantities($input: InventoryAdjustQuantitiesInput!) {
-        inventoryAdjustQuantities(input: $input) {
+      mutation SetVariantAvailableQuantity($inventoryItemId: ID!, $locationId: ID!, $quantity: Int!) {
+        inventorySetQuantities(
+          input: {
+            name: "available"
+            reason: "correction"
+            referenceDocumentUri: "gid://shopify/Product/InitialStock"
+            quantities: [
+              {
+                inventoryItemId: $inventoryItemId
+                locationId: $locationId
+                quantity: $quantity
+                changeFromQuantity: null
+              }
+            ]
+          }
+        ) {
           inventoryAdjustmentGroup {
+            id
             reason
             changes {
               name
@@ -245,31 +260,28 @@ router.post("/", validateSession, async (req, res) => {
               quantityAfterChange
             }
           }
-          userErrors { field message }
+          userErrors { code field message }
         }
       }
     `;
 
-    const changes = updatedVariants
+    const inventoryItemIds = updatedVariants
       .map((v) => v.inventoryItem?.id)
-      .filter(Boolean)
-      .map((inventoryItemId) => ({
-        inventoryItemId,
-        locationId: LOCATION_ID,
-        delta: DEFAULT_QUANTITY,
-      }));
+      .filter(Boolean);
 
-    if (changes.length > 0) {
+    for (const inventoryItemId of inventoryItemIds) {
       try {
         const invData = await shopifyGraphql(inventoryMutation, {
-          input: { reason: "correction", name: "available", changes },
+          inventoryItemId,
+          locationId: LOCATION_ID,
+          quantity: DEFAULT_QUANTITY,
         });
 
-        if (invData.inventoryAdjustQuantities.userErrors?.length > 0) {
-          console.warn("Inventory adjust warnings:", invData.inventoryAdjustQuantities.userErrors);
+        if (invData.inventorySetQuantities.userErrors?.length > 0) {
+          console.warn("Inventory set warnings:", invData.inventorySetQuantities.userErrors);
         }
       } catch (err) {
-        console.error("Inventory adjust error:", err.message);
+        console.error("Inventory set error:", err.message);
         // Non-fatal — product and variants are correct, just inventory not set
       }
     }
