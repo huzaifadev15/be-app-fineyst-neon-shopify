@@ -4,6 +4,37 @@ import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
 
+// Cache the Online Store publication ID so we only fetch it once per process
+let onlineStorePublicationId = null;
+
+async function getOnlineStorePublicationId() {
+  if (onlineStorePublicationId) return onlineStorePublicationId;
+
+  const query = `
+    query {
+      publications(first: 20) {
+        edges {
+          node {
+            id
+            name
+          }
+        }
+      }
+    }
+  `;
+
+  const data = await shopifyGraphql(query);
+  const pub = data.publications.edges.find(
+    ({ node }) => node.name === "Online Store"
+  );
+
+  if (pub) {
+    onlineStorePublicationId = pub.node.id;
+  }
+
+  return onlineStorePublicationId;
+}
+
 // POST /products — create a product with optional variants and images
 // Payload example:
 // {
@@ -131,13 +162,14 @@ router.post("/", validateSession, async (req, res) => {
       attachedMedia = media ?? [];
     } catch (err) {
       console.error("productCreateMedia error:", err.message);
-      // Non-fatal — product was created successfully, just log the warning
+      // Non-fatal — product was created, just log
     }
   }
 
   // Step 3: Update variants if provided
   // Shopify auto-creates a "Default Title" variant on product creation.
   // We UPDATE that existing variant instead of creating a new one to avoid conflicts.
+  let updatedVariants = [];
   if (Array.isArray(variants) && variants.length > 0) {
     const defaultVariantId = createdProduct.variants?.edges?.[0]?.node?.id;
 
@@ -159,7 +191,6 @@ router.post("/", validateSession, async (req, res) => {
     `;
 
     const variantsInput = variants.map((v, i) => ({
-      // Attach the existing default variant id for the first variant to avoid duplicate conflict
       ...(i === 0 && defaultVariantId ? { id: defaultVariantId } : {}),
       price: String(v.price ?? "0.00"),
       ...(v.compareAtPrice && { compareAtPrice: String(v.compareAtPrice) }),
@@ -186,13 +217,7 @@ router.post("/", validateSession, async (req, res) => {
         });
       }
 
-      const { variants: _v, ...productData } = createdProduct;
-      return res.status(201).json({
-        success: true,
-        product: productData,
-        variants: productVariantsBulkUpdate.productVariants,
-        media: attachedMedia,
-      });
+      updatedVariants = productVariantsBulkUpdate.productVariants;
     } catch (err) {
       console.error("Variant update error:", err.message);
       return res.status(500).json({
@@ -203,8 +228,48 @@ router.post("/", validateSession, async (req, res) => {
     }
   }
 
+  // Step 4: Publish to Online Store so onlineStoreUrl is populated
+  let onlineStoreUrl = createdProduct.onlineStoreUrl ?? null;
+  try {
+    const publicationId = await getOnlineStorePublicationId();
+    if (publicationId) {
+      const publishMutation = `
+        mutation publishablePublish($id: ID!, $input: PublishablePublishInput!) {
+          publishablePublish(id: $id, input: $input) {
+            publishable {
+              ... on Product {
+                onlineStoreUrl
+              }
+            }
+            userErrors { field message }
+          }
+        }
+      `;
+
+      const pubData = await shopifyGraphql(publishMutation, {
+        id: createdProduct.id,
+        input: { publicationIds: [publicationId] },
+      });
+
+      const published = pubData.publishablePublish;
+      if (published.userErrors?.length > 0) {
+        console.warn("Publish warnings:", published.userErrors);
+      } else {
+        onlineStoreUrl = published.publishable?.onlineStoreUrl ?? onlineStoreUrl;
+      }
+    }
+  } catch (err) {
+    console.error("Publish to Online Store error:", err.message);
+    // Non-fatal — product was created and priced correctly
+  }
+
   const { variants: _v, ...productData } = createdProduct;
-  return res.status(201).json({ success: true, product: productData, media: attachedMedia });
+  return res.status(201).json({
+    success: true,
+    product: { ...productData, onlineStoreUrl },
+    variants: updatedVariants,
+    media: attachedMedia,
+  });
 });
 
 export default router;
