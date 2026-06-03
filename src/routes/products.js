@@ -4,35 +4,25 @@ import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
 
-// Cache the Online Store publication ID so we only fetch it once per process
-let onlineStorePublicationId = null;
+// Cache all publication IDs so we only fetch once per process
+let cachedPublicationIds = null;
 
-async function getOnlineStorePublicationId() {
-  if (onlineStorePublicationId) return onlineStorePublicationId;
+async function getAllPublicationIds() {
+  if (cachedPublicationIds) return cachedPublicationIds;
 
   const query = `
     query {
       publications(first: 20) {
         edges {
-          node {
-            id
-            name
-          }
+          node { id name }
         }
       }
     }
   `;
 
   const data = await shopifyGraphql(query);
-  const pub = data.publications.edges.find(
-    ({ node }) => node.name === "Online Store"
-  );
-
-  if (pub) {
-    onlineStorePublicationId = pub.node.id;
-  }
-
-  return onlineStorePublicationId;
+  cachedPublicationIds = data.publications.edges.map(({ node }) => node.id);
+  return cachedPublicationIds;
 }
 
 // POST /products — create a product with optional variants and images
@@ -228,11 +218,11 @@ router.post("/", validateSession, async (req, res) => {
     }
   }
 
-  // Step 4: Publish to Online Store so onlineStoreUrl is populated
+  // Step 4: Publish to all sales channels
   let onlineStoreUrl = createdProduct.onlineStoreUrl ?? null;
   try {
-    const publicationId = await getOnlineStorePublicationId();
-    if (publicationId) {
+    const publicationIds = await getAllPublicationIds();
+    if (publicationIds.length > 0) {
       const publishMutation = `
         mutation publishablePublish($id: ID!, $input: PublishablePublishInput!) {
           publishablePublish(id: $id, input: $input) {
@@ -248,7 +238,7 @@ router.post("/", validateSession, async (req, res) => {
 
       const pubData = await shopifyGraphql(publishMutation, {
         id: createdProduct.id,
-        input: { publicationIds: [publicationId] },
+        input: { publicationIds },
       });
 
       const published = pubData.publishablePublish;
@@ -259,7 +249,7 @@ router.post("/", validateSession, async (req, res) => {
       }
     }
   } catch (err) {
-    console.error("Publish to Online Store error:", err.message);
+    console.error("Publish to all channels error:", err.message);
     // Non-fatal — product was created and priced correctly
   }
 
