@@ -292,10 +292,13 @@ router.post("/:id/complete", validateSession, async (req, res) => {
 });
 
 // POST /draft-orders/:id/invoice — send invoice email for a draft order
+// Optional body fields: { customMessage }
 router.post("/:id/invoice", validateSession, async (req, res) => {
+  const { customMessage } = req.body ?? {};
+
   const mutation = `
-    mutation draftOrderInvoiceSend($id: ID!) {
-      draftOrderInvoiceSend(id: $id) {
+    mutation draftOrderInvoiceSend($id: ID!, $customMessage: String) {
+      draftOrderInvoiceSend(id: $id, email: { customMessage: $customMessage }) {
         draftOrder {
           id
           name
@@ -308,7 +311,10 @@ router.post("/:id/invoice", validateSession, async (req, res) => {
 
   try {
     const id = `gid://shopify/DraftOrder/${req.params.id}`;
-    const data = await shopifyGraphql(mutation, { id });
+    const data = await shopifyGraphql(mutation, {
+      id,
+      customMessage: customMessage ?? null,
+    });
     const { draftOrderInvoiceSend } = data;
 
     if (draftOrderInvoiceSend.userErrors.length > 0) {
