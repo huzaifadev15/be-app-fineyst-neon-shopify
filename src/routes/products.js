@@ -56,9 +56,7 @@ router.post("/", validateSession, async (req, res) => {
           }
           variants(first: 1) {
             edges {
-              node {
-                id
-              }
+              node { id }
             }
           }
           createdAt
@@ -68,20 +66,14 @@ router.post("/", validateSession, async (req, res) => {
     }
   `;
 
-  // Map images: { url, altText } → Shopify ImageInput: { src, altText }
-  const shopifyImages = Array.isArray(images) && images.length > 0
-    ? images.map((img) => ({ src: img.url, ...(img.altText && { altText: img.altText }) }))
-    : undefined;
-
   const productInput = {
     title,
     status,
-    ...(templateSuffix  && { templateSuffix }),
-    ...(vendor          && { vendor }),
-    ...(productType     && { productType }),
-    ...(tags            && { tags }),
-    ...(options         && { productOptions: options }),
-    ...(shopifyImages   && { images: shopifyImages }),
+    ...(templateSuffix && { templateSuffix }),
+    ...(vendor         && { vendor }),
+    ...(productType    && { productType }),
+    ...(tags           && { tags }),
+    ...(options        && { productOptions: options }),
   };
 
   let createdProduct;
@@ -102,10 +94,51 @@ router.post("/", validateSession, async (req, res) => {
     return res.status(500).json({ error: "Failed to create product", detail: err.message });
   }
 
-  // Step 2: Update variants if provided
+  // Step 2: Attach images via productCreateMedia (images are not part of ProductCreateInput)
+  let attachedMedia = [];
+  if (Array.isArray(images) && images.length > 0) {
+    const mediaMutation = `
+      mutation productCreateMedia($productId: ID!, $media: [CreateMediaInput!]!) {
+        productCreateMedia(productId: $productId, media: $media) {
+          media {
+            ... on MediaImage {
+              id
+              image { url }
+            }
+          }
+          mediaUserErrors { field message }
+        }
+      }
+    `;
+
+    const mediaInput = images.map((img) => ({
+      originalSource: img.url,
+      alt: img.altText ?? title,
+      mediaContentType: "IMAGE",
+    }));
+
+    try {
+      const data = await shopifyGraphql(mediaMutation, {
+        productId: createdProduct.id,
+        media: mediaInput,
+      });
+      const { media, mediaUserErrors } = data.productCreateMedia;
+
+      if (mediaUserErrors?.length > 0) {
+        console.warn("Media attach warnings:", mediaUserErrors);
+      }
+
+      attachedMedia = media ?? [];
+    } catch (err) {
+      console.error("productCreateMedia error:", err.message);
+      // Non-fatal — product was created successfully, just log the warning
+    }
+  }
+
+  // Step 3: Update variants if provided
   // Shopify auto-creates a "Default Title" variant on product creation.
   // We UPDATE that existing variant instead of creating a new one to avoid conflicts.
-  if (variants && Array.isArray(variants) && variants.length > 0) {
+  if (Array.isArray(variants) && variants.length > 0) {
     const defaultVariantId = createdProduct.variants?.edges?.[0]?.node?.id;
 
     const variantsMutation = `
@@ -126,15 +159,15 @@ router.post("/", validateSession, async (req, res) => {
     `;
 
     const variantsInput = variants.map((v, i) => ({
-      // Attach the existing default variant id for the first variant, rest are new
+      // Attach the existing default variant id for the first variant to avoid duplicate conflict
       ...(i === 0 && defaultVariantId ? { id: defaultVariantId } : {}),
       price: String(v.price ?? "0.00"),
-      ...(v.compareAtPrice  && { compareAtPrice: String(v.compareAtPrice) }),
-      ...(v.sku             && { sku: v.sku }),
-      ...(v.optionValues    && { optionValues: v.optionValues }),
+      ...(v.compareAtPrice && { compareAtPrice: String(v.compareAtPrice) }),
+      ...(v.sku            && { sku: v.sku }),
+      ...(v.optionValues   && { optionValues: v.optionValues }),
       inventoryItem: {
         tracked: true,
-        ...(v.cost          && { cost: String(v.cost) }),
+        ...(v.cost && { cost: String(v.cost) }),
       },
       inventoryQuantities: v.quantity != null
         ? [{ availableQuantity: parseInt(v.quantity, 10), locationId: v.locationId ?? "gid://shopify/Location/98908438835" }]
@@ -156,12 +189,12 @@ router.post("/", validateSession, async (req, res) => {
         });
       }
 
-      // Strip internal variants field before returning
       const { variants: _v, ...productData } = createdProduct;
       return res.status(201).json({
         success: true,
         product: productData,
         variants: productVariantsBulkUpdate.productVariants,
+        media: attachedMedia,
       });
     } catch (err) {
       console.error("Variant update error:", err.message);
@@ -173,9 +206,8 @@ router.post("/", validateSession, async (req, res) => {
     }
   }
 
-  // No variants provided — strip internal variants field before returning
   const { variants: _v, ...productData } = createdProduct;
-  return res.status(201).json({ success: true, product: productData });
+  return res.status(201).json({ success: true, product: productData, media: attachedMedia });
 });
 
 export default router;
