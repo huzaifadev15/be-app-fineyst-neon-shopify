@@ -357,4 +357,40 @@ router.post("/", validateSession, async (req, res) => {
   });
 });
 
+// DELETE /products/:id — delete a product by numeric id or full GID
+router.delete("/:id", validateSession, async (req, res) => {
+  const id = req.params.id.startsWith("gid://")
+    ? req.params.id
+    : `gid://shopify/Product/${req.params.id}`;
+
+  const mutation = `
+    mutation productDelete($id: ID!) {
+      productDelete(input: { id: $id }) {
+        deletedProductId
+        userErrors { field message }
+      }
+    }
+  `;
+
+  try {
+    const data = await shopifyGraphql(mutation, { id });
+    const { productDelete } = data;
+
+    if (productDelete.userErrors.length > 0) {
+      return res.status(422).json({
+        error: "Failed to delete product",
+        detail: productDelete.userErrors,
+      });
+    }
+
+    return res.json({
+      success: true,
+      deletedProductId: productDelete.deletedProductId,
+    });
+  } catch (err) {
+    console.error("Product delete error:", err.message);
+    return res.status(500).json({ error: "Failed to delete product", detail: err.message });
+  }
+});
+
 export default router;
