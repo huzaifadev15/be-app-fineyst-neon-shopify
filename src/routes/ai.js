@@ -268,10 +268,12 @@ router.post("/generate", async (req, res) => {
 
     return res.json({ requestId: compositeId, status: "processing" });
   } catch (error) {
+    console.error("[AI_GENERATE] error:", error?.message, error?.stack);
     const isTimeout = error?.name === "AbortError";
     return res.status(isTimeout ? 504 : 500).json({
       ok: false,
-      message: isTimeout ? "AI generation request timed out." : (error?.message || "Failed to start AI generation.")
+      message: isTimeout ? "AI generation request timed out." : (error?.message || "Failed to start AI generation."),
+      detail: error?.message
     });
   }
 });
@@ -297,6 +299,9 @@ router.post("/edit", async (req, res) => {
   try {
     const { action, imageUrl, prompt } = req.body || {};
 
+    console.log("[AI_EDIT] body:", JSON.stringify({ action, imageUrl, prompt }));
+    console.log("[AI_EDIT] FAL_KEY present:", Boolean(FAL_KEY));
+
     if (!action || !EDIT_MODEL_BY_ACTION[action]) {
       return res.status(400).json({ ok: false, message: "action must be one of: remove_background, crop, edit" });
     }
@@ -310,6 +315,9 @@ router.post("/edit", async (req, res) => {
     const model = EDIT_MODEL_BY_ACTION[action];
     const input = buildEditInput(action, imageUrl, prompt);
 
+    console.log("[AI_EDIT] submitting to fal model:", model);
+    console.log("[AI_EDIT] input:", JSON.stringify(input));
+
     const queueResult = await Promise.race([
       fal.queue.submit(model, { input }),
       new Promise((_, reject) =>
@@ -317,13 +325,17 @@ router.post("/edit", async (req, res) => {
       )
     ]);
 
+    console.log("[AI_EDIT] queueResult:", JSON.stringify(queueResult));
+
     const compositeId = makeCompositeId(model, queueResult.request_id);
     return res.json({ requestId: compositeId, status: "processing" });
   } catch (error) {
+    console.error("[AI_EDIT] error:", error?.message, error?.stack);
     const isTimeout = error?.name === "AbortError";
     return res.status(isTimeout ? 504 : 500).json({
       ok: false,
-      message: isTimeout ? "Request timed out." : (error?.message || "Failed to start edit.")
+      message: isTimeout ? "Request timed out." : (error?.message || "Failed to start edit."),
+      detail: error?.message
     });
   }
 });
