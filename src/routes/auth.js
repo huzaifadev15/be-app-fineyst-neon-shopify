@@ -6,7 +6,7 @@ const router = Router();
 
 const SHOPIFY_API_KEY = (process.env.SHOPIFY_API_KEY || "").trim();
 const SHOPIFY_API_SECRET = (process.env.SHOPIFY_API_SECRET || "").trim();
-const SHOPIFY_SCOPES = (process.env.SHOPIFY_SCOPES || "write_draft_orders,read_draft_orders").trim();
+const SHOPIFY_SCOPES = (process.env.SHOPIFY_SCOPES || "write_draft_orders,read_draft_orders,write_products,read_products,write_inventory,read_inventory").trim();
 const APP_URL = (process.env.HOST || "").trim().replace(/\/$/, "");
 
 // In-memory nonce store for CSRF protection

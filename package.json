@@ -12,6 +12,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@fal-ai/client": "^1.10.1",
     "@shopify/shopify-api": "^13.0.0",
     "@vercel/functions": "^3.6.1",
     "cors": "^2.8.6",

@@ -5,6 +5,7 @@ import authRouter from "./routes/auth.js";
 import draftOrdersRouter from "./routes/draftOrders.js";
 import uploadsRouter from "./routes/uploads.js";
 import productsRouter from "./routes/products.js";
+import aiRouter from "./routes/ai.js";
 import { accessToken, SHOP_DOMAIN } from "./lib/shopify.js";
 
 const app = express();
@@ -33,6 +34,9 @@ app.use("/uploads", uploadsRouter);
 
 // Products
 app.use("/products", productsRouter);
+
+// AI image generation & editing
+app.use("/ai", aiRouter);
 
 // Health check
 app.get("/health", (_req, res) => {
