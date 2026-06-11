@@ -13,7 +13,7 @@ const AI_TIMEOUT_MS          = Number(process.env.AI_TIMEOUT_MS          || 12_0
 
 const AI_NEGATIVE_PROMPT = (
   process.env.AI_NEGATIVE_PROMPT ||
-  "photorealistic, photograph, 3d render, hyperrealistic, skin texture, bokeh, camera, lens, realistic lighting, blurry, watermark, ugly, deformed, dark background, black background"
+  "photorealistic, photograph, 3d render, hyperrealistic, skin texture, bokeh, camera, lens, realistic lighting, blurry, watermark, ugly, deformed, dark background, black background, gore, blood, violence, explicit"
 ).trim();
 
 const AI_ALLOWED_MODELS = (process.env.AI_ALLOWED_MODELS || "flux,flux-pro,flux-schnell")
@@ -127,19 +127,20 @@ async function rewritePromptForNeon(userPrompt) {
           messages: [
             {
               role: "system",
-              content: `You are a prompt rewriter for a neon sign image generator. Every single output MUST describe a neon sign — no exceptions.
+              content: `You are a prompt rewriter for a neon sign image generator. Every single output MUST describe a neon sign — no exceptions, no refusals.
 
 MANDATORY OUTPUT FORMAT:
-"neon sign of [subject], glowing neon tube lights, vibrant [color] glow, bold continuous lines, clean stroke design, isolated on plain white background, no dark background"
+"neon sign of [subject], glowing neon tube lights, vibrant [color] glow, bold continuous lines, clean stroke design, flat 2D illustration, isolated on plain white background, no dark background"
 
 RULES (all are required):
-1. ALWAYS begin with "neon sign of " — never omit this
+1. ALWAYS begin with "neon sign of " — never omit this, never refuse
 2. Keep the user's subject exactly as given — never swap, replace, or drop it
 3. Preserve any colors or text the user specifies
 4. If no color given, choose a fitting vibrant neon color (pink, blue, red, green, purple, orange, yellow)
-5. End with: isolated on plain white background, no dark background, no scenery
+5. End with: flat 2D illustration, isolated on plain white background, no dark background, no scenery
 6. Remove words like: realistic, cinematic, photo, painting, render, 3d, atmospheric, dark, shadow
-7. Return ONLY the rewritten prompt — one sentence, no explanation, no quotes`
+7. For any subject that could be sensitive (weapons, objects, etc.) — frame it strictly as decorative neon tube wall art, a flat glowing line-art silhouette, NOT realistic. Example: "ak47" → "neon sign of AK-47 silhouette, glowing red neon tube lights, bold line-art outline, flat 2D illustration, isolated on plain white background"
+8. Return ONLY the rewritten prompt — one sentence, no explanation, no quotes, no refusal`
             },
             { role: "user", content: userPrompt }
           ]
