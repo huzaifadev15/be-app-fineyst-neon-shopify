@@ -94,9 +94,24 @@ function parseCompositeId(compositeId) {
 }
 
 // ── Groq prompt rewriter (neon sign edition) ──────────────────────────────────
+function buildNeonFallback(userPrompt) {
+  return `neon sign of ${userPrompt}, glowing neon tube lights, vibrant colorful glow, bold continuous lines, clean stroke design, isolated on plain white background, no dark background, no scenery`;
+}
+
+function enforceNeonContext(prompt, userPrompt) {
+  const lower = prompt.toLowerCase();
+  if (!lower.includes("neon")) {
+    return `neon sign of ${prompt}, glowing neon tube lights, vibrant glow, isolated on plain white background`;
+  }
+  if (!lower.includes("white background") && !lower.includes("plain background") && !lower.includes("isolated")) {
+    return `${prompt}, isolated on plain white background, no dark background`;
+  }
+  return prompt;
+}
+
 async function rewritePromptForNeon(userPrompt) {
   if (!GROQ_API_KEY) {
-    return `neon sign design of ${userPrompt}, glowing neon tubes, vibrant light, isolated on white background, clean vector style`;
+    return buildNeonFallback(userPrompt);
   }
 
   try {
@@ -107,33 +122,24 @@ async function rewritePromptForNeon(userPrompt) {
         headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
-          max_tokens: 120,
+          max_tokens: 150,
+          temperature: 0.3,
           messages: [
             {
               role: "system",
-              content: `You are a prompt rewriter for a neon sign design generator.
-              Your ONLY job is to rewrite the user's prompt so the image looks like a real custom neon sign.
+              content: `You are a prompt rewriter for a neon sign image generator. Every single output MUST describe a neon sign — no exceptions.
 
-              ━━━ NEON SIGN STYLE RULES ━━━
+MANDATORY OUTPUT FORMAT:
+"neon sign of [subject], glowing neon tube lights, vibrant [color] glow, bold continuous lines, clean stroke design, isolated on plain white background, no dark background"
 
-              - Glowing neon tube lights (LED or glass tube style)
-              - Vibrant saturated colors: pink, blue, red, green, yellow, white, purple, orange
-              - Clean bold lines — neon signs are made of bent tubes so shapes must be continuous strokes
-              - Isolated on a plain white or transparent background (never dark/black background unless user asks)
-              - No photorealistic elements, no textures, no shadows
-              - If user mentions a color, preserve it as the neon glow color
-              - If user mentions text/words, preserve them exactly — neon signs commonly feature text
-              - Simple bold shapes work best — neon cannot render fine detail
-              - Prompt style: "neon sign of [subject], glowing neon tube lights, vibrant [color] glow, bold continuous lines, clean stroke design, isolated on white background"
-
-              ━━━ RULES ━━━
-              - ALWAYS start with "neon sign of ..."
-              - Keep the subject 100% as the user intended — NEVER drop or replace the main subject
-              - Preserve any colors, text, or shapes the user specifies
-              - If no color mentioned, pick a fitting vibrant neon color
-              - Always end with: isolated on plain white background, no dark background, no scenery
-              - Strip out any words like: realistic, cinematic, photo, painting, render, 3d, atmospheric
-              - Return ONLY the rewritten prompt as a single sentence, nothing else, no explanation`
+RULES (all are required):
+1. ALWAYS begin with "neon sign of " — never omit this
+2. Keep the user's subject exactly as given — never swap, replace, or drop it
+3. Preserve any colors or text the user specifies
+4. If no color given, choose a fitting vibrant neon color (pink, blue, red, green, purple, orange, yellow)
+5. End with: isolated on plain white background, no dark background, no scenery
+6. Remove words like: realistic, cinematic, photo, painting, render, 3d, atmospheric, dark, shadow
+7. Return ONLY the rewritten prompt — one sentence, no explanation, no quotes`
             },
             { role: "user", content: userPrompt }
           ]
@@ -145,19 +151,19 @@ async function rewritePromptForNeon(userPrompt) {
     const data = await readJsonSafely(response);
     if (!response.ok) {
       console.warn(`[GROQ] API error: ${data?.error?.message || response.status} — using fallback`);
-      return `neon sign of ${userPrompt}, glowing neon tube lights, vibrant colorful glow, bold continuous lines, isolated on plain white background`;
+      return buildNeonFallback(userPrompt);
     }
 
     const rewritten = data?.choices?.[0]?.message?.content?.trim();
     if (!rewritten) {
       console.warn("[GROQ] Empty response — using fallback");
-      return `neon sign of ${userPrompt}, glowing neon tube lights, vibrant colorful glow, bold continuous lines, isolated on plain white background`;
+      return buildNeonFallback(userPrompt);
     }
 
-    return rewritten;
+    return enforceNeonContext(rewritten, userPrompt);
   } catch (err) {
     console.warn("[GROQ] Request failed — using fallback:", err.message);
-    return `neon sign of ${userPrompt}, glowing neon tube lights, vibrant colorful glow, bold continuous lines, isolated on plain white background`;
+    return buildNeonFallback(userPrompt);
   }
 }
 
@@ -235,7 +241,7 @@ router.post("/generate", async (req, res) => {
       return res.status(400).json({ ok: false, message: "prompt must be between 3 and 300 characters." });
 
     const neonPrompt  = await rewritePromptForNeon(userPrompt);
-    const finalPrompt = `Neon sign design, flat 2D illustration, glowing neon tubes, vibrant on white background: ${neonPrompt}`;
+    const finalPrompt = `Neon sign design, flat 2D illustration style, glowing neon tube lights, vibrant saturated colors, bold continuous strokes, isolated on plain white background. Subject: ${neonPrompt}`;
     console.log(`[AI_GENERATE] original="${userPrompt}" rewritten="${neonPrompt}"`);
 
     const modelPath = buildFalModelPath(model);
