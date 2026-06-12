@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { waitUntil } from "@vercel/functions";
-import { shopifyGraphql } from "../lib/shopify.js";
+import { shopifyGraphql, SHOP_DOMAIN } from "../lib/shopify.js";
 import { validateSession } from "../middleware/validateSession.js";
 
 const router = Router();
@@ -352,6 +352,167 @@ router.delete("/:id", validateSession, async (req, res) => {
   } catch (err) {
     console.error("Draft order delete error:", err.message);
     return res.status(500).json({ error: "Failed to delete draft order", detail: err.message });
+  }
+});
+
+// POST /draft-orders/manual — create a DRAFT product then a draft order from manual fields
+// Body: { quantity, shipping, backing, border, broder, productImage, price, email, customerName }
+router.post("/manual", validateSession, async (req, res) => {
+  const {
+    quantity,
+    shipping,
+    backing,
+    border,
+    broder,
+    productImage,
+    price,
+    email,
+    customerName,
+  } = req.body ?? {};
+
+  const qty = parseInt(quantity, 10);
+  if (!qty || qty < 1) {
+    return res.status(400).json({ error: "quantity must be a positive integer." });
+  }
+
+  try {
+    // ── Step 1: build product title & description ─────────────────────────────
+    const borderValue  = border || broder || "";
+    const productTitle = [
+      "Manual Order",
+      `Qty: ${qty}`,
+      backing     ? `Backing: ${backing}`    : null,
+      borderValue ? `Border: ${borderValue}` : null,
+    ].filter(Boolean).join(" | ");
+
+    const descriptionHtml = [
+      `Quantity: ${qty}`,
+      backing     ? `Backing: ${backing}`    : null,
+      borderValue ? `Border: ${borderValue}` : null,
+      shipping    ? `Shipping: ${shipping}`  : null,
+    ].filter(Boolean).join("<br>");
+
+    // ── Step 2: resolve image URL ─────────────────────────────────────────────
+    const resolvedImageUrl = productImage
+      ? productImage.startsWith("http")
+        ? productImage
+        : `https://${SHOP_DOMAIN}${productImage.startsWith("/") ? "" : "/"}${productImage}`
+      : null;
+
+    const mediaInput = resolvedImageUrl
+      ? [{ originalSource: resolvedImageUrl, alt: productTitle, mediaContentType: "IMAGE" }]
+      : [];
+
+    // ── Step 3: create DRAFT product ─────────────────────────────────────────
+    const productData = await shopifyGraphql(`
+      mutation CreateManualProduct($product: ProductCreateInput!, $media: [CreateMediaInput!]) {
+        productCreate(product: $product, media: $media) {
+          product {
+            id
+            variants(first: 1) { nodes { id } }
+          }
+          userErrors { field message }
+        }
+      }
+    `, {
+      product: {
+        title:           productTitle,
+        descriptionHtml,
+        status:          "DRAFT",
+        tags:            ["manual-order", `qty-${qty}`],
+      },
+      media: mediaInput,
+    });
+
+    const productErrors = productData?.productCreate?.userErrors ?? [];
+    if (productErrors.length) {
+      return res.status(422).json({ error: "Product creation failed", detail: productErrors });
+    }
+
+    const createdProduct = productData?.productCreate?.product;
+    const createdVariant = createdProduct?.variants?.nodes?.[0];
+    if (!createdVariant?.id) {
+      return res.status(502).json({ error: "Product created but variant ID not returned." });
+    }
+
+    // ── Step 4: set variant price ─────────────────────────────────────────────
+    const unitPrice  = parseFloat(price) || 0;
+    const variantData = await shopifyGraphql(`
+      mutation SetVariantPrice($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+        productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+          productVariants { id price }
+          userErrors { field message }
+        }
+      }
+    `, {
+      productId: createdProduct.id,
+      variants:  [{ id: createdVariant.id, price: unitPrice.toFixed(2) }],
+    });
+
+    const variantErrors = variantData?.productVariantsBulkUpdate?.userErrors ?? [];
+    if (variantErrors.length) {
+      return res.status(422).json({ error: "Variant price update failed", detail: variantErrors });
+    }
+
+    // ── Step 5: create draft order ────────────────────────────────────────────
+    const draftData = await shopifyGraphql(`
+      mutation draftOrderCreate($input: DraftOrderInput!) {
+        draftOrderCreate(input: $input) {
+          draftOrder {
+            id
+            name
+            status
+            totalPrice
+            invoiceUrl
+          }
+          userErrors { field message }
+        }
+      }
+    `, {
+      input: {
+        lineItems: [{
+          variantId: createdVariant.id,
+          quantity:  qty,
+          customAttributes: [
+            { key: "Quantity", value: String(qty) },
+            ...(backing     ? [{ key: "Backing", value: backing }]       : []),
+            ...(borderValue ? [{ key: "Border",  value: borderValue }]   : []),
+          ],
+        }],
+        shippingLine: {
+          title: "Shipping",
+          price: shipping != null ? String(shipping) : "0.00",
+        },
+        note: productTitle,
+        ...(email        && { email }),
+        ...(customerName && {
+          shippingAddress: { firstName: customerName },
+          billingAddress:  { firstName: customerName },
+        }),
+      },
+    });
+
+    const draftErrors = draftData?.draftOrderCreate?.userErrors ?? [];
+    if (draftErrors.length) {
+      return res.status(422).json({ error: "Draft order creation failed", detail: draftErrors });
+    }
+
+    const draftOrder = draftData?.draftOrderCreate?.draftOrder;
+    return res.status(201).json({
+      success:    true,
+      productId:  createdProduct.id,
+      draftOrder: {
+        id:         draftOrder?.id,
+        name:       draftOrder?.name,
+        status:     draftOrder?.status,
+        totalPrice: draftOrder?.totalPrice,
+        invoiceUrl: draftOrder?.invoiceUrl,
+      },
+    });
+
+  } catch (err) {
+    console.error("[MANUAL_DRAFT_ORDER]", err.message);
+    return res.status(500).json({ error: "Failed to create manual draft order", detail: err.message });
   }
 });
 
